@@ -2,9 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
-	"math"
 	"net/http"
 	"sort"
 	"time"
@@ -67,9 +67,10 @@ func Mirrors() (MirrorStatus, error) {
 }
 
 func Rate(mirror MirrorURL) MirrorRate {
+	log.Printf("Rating %v", mirror.URL)
+
 	mr := MirrorRate{
-		URL:  mirror,
-		Rate: math.MaxFloat64,
+		URL: mirror,
 	}
 
 	url := mirror.URL + "core/os/i686/core.db"
@@ -88,8 +89,9 @@ func Rate(mirror MirrorURL) MirrorRate {
 		return mr
 	}
 	size := len(body)
+	sizeInMb := float64(size) / 1024 / 1024
 
-	rate := float64(size) / dur
+	rate := sizeInMb / float64(dur)
 
 	return MirrorRate{
 		URL:  mirror,
@@ -99,11 +101,14 @@ func Rate(mirror MirrorURL) MirrorRate {
 
 func Rates(mirrors []MirrorURL) []MirrorRate {
 	mr := make(chan MirrorRate)
+	pool := make(chan bool, 5)
 
 	for _, m := range mirrors {
-		go func(mu MirrorURL, mr chan MirrorRate) {
+		go func(mu MirrorURL, mr chan MirrorRate, p chan bool) {
+			p <- true
 			mr <- Rate(mu)
-		}(m, mr)
+			<-p
+		}(m, mr, pool)
 	}
 
 	var rates []MirrorRate
@@ -115,7 +120,21 @@ func Rates(mirrors []MirrorURL) []MirrorRate {
 	return rates
 }
 
+func FilterHTTP(mirrors []MirrorURL) []MirrorURL {
+	var filter []MirrorURL
+
+	for _, m := range mirrors {
+		if m.Protocol == "http" {
+			filter = append(filter, m)
+		}
+	}
+
+	return filter
+}
+
 func main() {
+	log.SetPrefix("# ")
+
 	log.Print("gomirrors started")
 
 	ms, err := Mirrors()
@@ -123,15 +142,39 @@ func main() {
 		log.Fatalf("Error: %v", err)
 	}
 
-	log.Printf("Mirror Status: %+v", ms)
-
-	sort.Sort(sort.Reverse(ByAge(ms.URLs)))
-	mirrors := ms.URLs[:200]
 	log.Println()
-	log.Printf("200 Latest Sync Mirror: %+v", mirrors)
+	log.Printf("Number of mirrors: %d", len(ms.URLs))
 
+	mirrors := FilterHTTP(ms.URLs)
+	log.Println()
+	log.Printf("%d HTTP mirror:", len(mirrors))
+	for i, m := range mirrors {
+		log.Printf("%3d %s", i+1, m.URL)
+	}
+
+	sort.Sort(sort.Reverse(ByAge(mirrors)))
+	mirrors = mirrors[:50]
+	log.Println()
+	log.Printf("%d Latest Sync HTTP Mirror:", len(mirrors))
+	for i, m := range mirrors {
+		log.Printf("%3d %-50s %s", i+1, m.URL, m.LastSync)
+	}
+
+	log.Println()
+	log.Print("Rating Mirrors")
 	rates := Rates(mirrors)
+
 	sort.Sort(sort.Reverse(ByRate(rates)))
 	log.Println()
-	log.Printf("Mirror Rates: %+v", rates)
+	log.Printf("%d Latest Sync HTTP Mirror Sort By Rate:", len(rates))
+	for i, r := range rates {
+		log.Printf("%3d %-50s %.4f", i+1, r.URL.URL, r.Rate)
+	}
+
+	log.Println()
+	log.Print("Writing mirrorlist")
+	fmt.Println()
+	for _, r := range rates {
+		fmt.Printf("Server = %s$repo/os/$arch\n", r.URL.URL)
+	}
 }
