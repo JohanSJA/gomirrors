@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-type MirrorURL struct {
+type URL struct {
 	Protocol       string  `json:"protocol"`
 	URL            string  `json:"url"`
 	Country        string  `json:"country"`
@@ -23,23 +23,23 @@ type MirrorURL struct {
 	DurationAvg    float64 `json:"duration_avg"`
 }
 
-type ByAge []MirrorURL
+type ByAge []URL
 
 func (a ByAge) Len() int           { return len(a) }
 func (a ByAge) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByAge) Less(i, j int) bool { return a[i].LastSync < a[j].LastSync }
 
-type MirrorStatus struct {
-	Cutoff         int         `json:"cutoff"`
-	CheckFrequency int         `json:"check_frequency"`
-	NumChecks      int         `json:"num_checks"`
-	LastCheck      string      `json:"last_check"`
-	Version        int         `json:"version"`
-	URLs           []MirrorURL `json:"urls"`
+type Status struct {
+	Cutoff         int    `json:"cutoff"`
+	CheckFrequency int    `json:"check_frequency"`
+	NumChecks      int    `json:"num_checks"`
+	LastCheck      string `json:"last_check"`
+	Version        int    `json:"version"`
+	URLs           []URL  `json:"urls"`
 }
 
 type MirrorRate struct {
-	URL  MirrorURL
+	URL  URL
 	Rate float64
 }
 
@@ -49,8 +49,8 @@ func (r ByRate) Len() int           { return len(r) }
 func (r ByRate) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
 func (r ByRate) Less(i, j int) bool { return r[i].Rate < r[j].Rate }
 
-func Mirrors() (MirrorStatus, error) {
-	var mirror MirrorStatus
+func Mirrors() (Status, error) {
+	var mirror Status
 
 	resp, err := http.Get("https://www.archlinux.org/mirrors/status/json/")
 	if err != nil {
@@ -66,7 +66,7 @@ func Mirrors() (MirrorStatus, error) {
 	return mirror, nil
 }
 
-func Rate(mirror MirrorURL) MirrorRate {
+func Rate(mirror URL) MirrorRate {
 	log.Printf("Rating %v", mirror.URL)
 
 	mr := MirrorRate{
@@ -99,12 +99,12 @@ func Rate(mirror MirrorURL) MirrorRate {
 	}
 }
 
-func Rates(mirrors []MirrorURL) []MirrorRate {
+func Rates(mirrors []URL) []MirrorRate {
 	mr := make(chan MirrorRate)
 	pool := make(chan bool, 5)
 
 	for _, m := range mirrors {
-		go func(mu MirrorURL, mr chan MirrorRate, p chan bool) {
+		go func(mu URL, mr chan MirrorRate, p chan bool) {
 			p <- true
 			mr <- Rate(mu)
 			<-p
@@ -120,8 +120,8 @@ func Rates(mirrors []MirrorURL) []MirrorRate {
 	return rates
 }
 
-func FilterHTTP(mirrors []MirrorURL) []MirrorURL {
-	var filter []MirrorURL
+func FilterHTTP(mirrors []URL) []URL {
+	var filter []URL
 
 	for _, m := range mirrors {
 		if m.Protocol == "http" {
